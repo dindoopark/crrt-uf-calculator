@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<!-- v1.3 — I/O 정산 기준시각 선택(0A/6A, NS·NR 6시 기준) 추가. cycle 기반 시간/feeding 계산 일반화 -->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRRT UF Tolerance Calculator v1.3</title>
+<style>
+  /* ============== Concept E — iOS Health Pastel ============== */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Malgun Gothic", sans-serif;
+    background: #f5f5f7; color: #1d1d1f; line-height: 1.55; padding: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  header {
+    background: white; color: #1d1d1f; padding: 18px 24px;
+    border-radius: 18px 18px 0 0;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+    border-bottom: 1px solid #e5e5e7;
+  }
+  header h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
+  header h1 .v { font-size: 11px; font-weight: 500; color: #86868b; margin-left: 4px; }
+  header p { font-size: 11px; color: #86868b; margin-top: 2px; }
+  .clock {
+    font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums;
+    background: #f5f5f7; color: #1d1d1f; padding: 6px 12px; border-radius: 10px;
+  }
+
+  .toolbar {
+    background: white; padding: 12px 24px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    border-bottom: 1px solid #e5e5e7;
+  }
+  .toolbar-label { color: #86868b; font-size: 11px; margin-right: 4px; font-weight: 500; }
+  .btn {
+    padding: 7px 14px; font-size: 12px; font-weight: 500;
+    border: none; border-radius: 10px; cursor: pointer; transition: all 0.15s;
+    font-family: inherit;
+  }
+  .btn-save { background: linear-gradient(135deg, #a7f3d0, #6ee7b7); color: #065f46; }
+  .btn-save:hover { filter: brightness(0.95); }
+  .btn-load { background: linear-gradient(135deg, #bfdbfe, #93c5fd); color: #1e3a8a; }
+  .btn-load:hover { filter: brightness(0.95); }
+  .btn-load:disabled { background: #f5f5f7; color: #c7c7cc; cursor: not-allowed; }
+  .btn-reset { background: linear-gradient(135deg, #fecaca, #fca5a5); color: #7f1d1d; margin-left: auto; }
+  .btn-reset:hover { filter: brightness(0.95); }
+
+  .toast {
+    position: fixed; top: 20px; right: 20px; padding: 11px 18px;
+    background: white; color: #1d1d1f;
+    border-radius: 12px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15); opacity: 0; transform: translateX(20px);
+    transition: all 0.25s; pointer-events: none; z-index: 100;
+    border: 1px solid #e5e5e7;
+  }
+  .toast.show { opacity: 1; transform: translateX(0); }
+  .toast.ok::before { content: '✓ '; color: #16a34a; }
+  .toast.err::before { content: '⚠ '; color: #dc2626; }
+
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    background: white; border-radius: 0 0 18px 18px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.06);
+  }
+  .panel { padding: 20px 24px; }
+  .panel.left { border-right: 1px solid #e5e5e7; }
+  .panel.right { background: #fafafa; }
+  .section { margin-bottom: 20px; }
+  .section h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: #86868b; margin-bottom: 10px; font-weight: 600;
+  }
+
+  label {
+    display: block; font-size: 11.5px; font-weight: 500;
+    margin-bottom: 4px; color: #1d1d1f;
+  }
+  input[type="number"], input[type="time"], input[type="text"], select {
+    width: 100%; padding: 9px 11px; font-size: 13.5px;
+    border: 1px solid #d2d2d7; border-radius: 10px; background: white; font-family: inherit;
+    transition: border 0.15s;
+  }
+  input:focus, select:focus { outline: none; border-color: #007aff; box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+  input[readonly] { background: #f5f5f7; color: #1d1d1f; cursor: default; }
+  .hint { font-size: 10px; color: #86868b; margin-top: 2px; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 9px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; margin-bottom: 9px; }
+
+  .checkbox-item {
+    display: flex; align-items: flex-start;
+    padding: 9px 12px; background: white;
+    border: 1px solid #e5e5e7; border-radius: 12px;
+    margin-bottom: 6px; cursor: pointer; transition: all 0.15s;
+  }
+  .checkbox-item:hover { background: #fafafa; border-color: #c7c7cc; }
+  .checkbox-item input { margin-top: 2px; margin-right: 9px; cursor: pointer; accent-color: #007aff; }
+  .checkbox-item .label-text { font-size: 12px; font-weight: 500; color: #1d1d1f; }
+  .checkbox-item.active { background: linear-gradient(135deg, #fef3c7, #fde68a); border-color: #fcd34d; }
+  .checkbox-item.active.inotrope { background: linear-gradient(135deg, #dbeafe, #bfdbfe); border-color: #93c5fd; }
+
+  .drug-group { background: #fafafa; padding: 11px; border-radius: 14px; margin-bottom: 8px; border: 1px solid #e5e5e7; }
+  .drug-group.vaso { border-left: 4px solid #fca5a5; }
+  .drug-group.inotrope { border-left: 4px solid #93c5fd; }
+  .drug-group h3 {
+    font-size: 10.5px; color: #86868b; margin-bottom: 7px;
+    text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600;
+  }
+  .ne-dose { margin-top: 6px; padding: 7px 9px; background: white; border-radius: 8px; display: none; border: 1px solid #e5e5e7; }
+  .ne-dose.show { display: block; }
+
+  .day-panel {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    padding: 9px 14px 12px; border-radius: 14px; margin-bottom: 12px;
+  }
+  .day-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; margin-bottom: 8px; }
+  .day-box {
+    background: rgba(255, 255, 255, 0.7); padding: 7px 9px;
+    border-radius: 10px; text-align: center;
+  }
+  .day-box .label { font-size: 9.5px; color: #78350f; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 500; }
+  .day-box .value { font-size: 15px; font-weight: 700; color: #1d1d1f; font-variant-numeric: tabular-nums; }
+  .day-note { font-size: 10.5px; color: #78350f; }
+
+  /* ============== Mode toggle ============== */
+  .mode-toggle {
+    display: inline-flex; background: #f5f5f7; border-radius: 10px;
+    padding: 3px; font-size: 11.5px; margin-bottom: 10px;
+  }
+  .mode-toggle button {
+    border: none; background: transparent; padding: 6px 14px;
+    border-radius: 8px; cursor: pointer; font-weight: 500;
+    color: #86868b; font-family: inherit; transition: all 0.15s;
+  }
+  .mode-toggle button.active { background: white; color: #1d1d1f; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+  .io-block {
+    background: white; border: 1px solid #e5e5e7; border-radius: 12px;
+    padding: 11px 13px; margin-bottom: 8px;
+  }
+  .io-block h3 {
+    font-size: 11px; color: #1d1d1f; font-weight: 600; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .io-block h3 .sum {
+    font-size: 11px; color: #007aff; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .io-block.a { border-left: 4px solid #a7f3d0; }
+  .io-block.b { border-left: 4px solid #bfdbfe; }
+
+  /* ============== Output panel ============== */
+  .result-card {
+    background: white; border-radius: 16px; padding: 18px;
+    margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .tier-chip {
+    display: inline-block; padding: 8px 14px; border-radius: 14px;
+    font-size: 13.5px; font-weight: 600; margin-bottom: 12px;
+  }
+  /* Tier chip — 단계별 색상 진행 (안전 → 주의 → 경고 → 위험) */
+  .tier-moderate { background: linear-gradient(135deg, #bbf7d0, #4ade80); color: #14532d; }
+  .tier-low      { background: linear-gradient(135deg, #fef08a, #facc15); color: #713f12; }
+  .tier-ultra    { background: linear-gradient(135deg, #fdba74, #f97316); color: #7c2d12; }
+  .tier-zero     { background: linear-gradient(135deg, #fca5a5, #dc2626); color: #ffffff; box-shadow: 0 2px 8px rgba(220,38,38,0.3); }
+
+  .safe-banner {
+    background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+    padding: 10px 14px; margin-bottom: 11px; border-radius: 14px;
+    font-size: 12px; color: #3730a3;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .safe-banner .sb-label { font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; font-size: 10.5px; }
+  .safe-banner .sb-value { font-weight: 700; color: #312e81; font-size: 13px; }
+
+  .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .metric-box {
+    border-radius: 16px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  /* Needed — 정보 (계산된 목표량). Cool indigo tone */
+  .metric-box.needed {
+    background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+    border: 1px solid #a5b4fc;
+  }
+  .metric-box.needed .metric-value { color: #3730a3; }
+  .metric-box.needed .metric-label { color: #4338ca; }
+  /* Recommended — 실제 처방값 (강조). Warm amber, 굵은 테두리 */
+  .metric-box.recommended {
+    background: linear-gradient(135deg, #fef3c7, #fcd34d);
+    border: 2px solid #f59e0b;
+  }
+  .metric-box.recommended .metric-value { color: #b45309; font-size: 26px; font-weight: 700; }
+  .metric-box.recommended .metric-label { color: #78350f; }
+  /* Danger override — Zero tier */
+  .metric-box.danger {
+    background: linear-gradient(135deg, #fecaca, #f87171);
+    border: 2px solid #dc2626;
+  }
+  .metric-box.danger .metric-value { color: #ffffff; text-shadow: 0 1px 2px rgba(0,0,0,0.15); font-size: 26px; font-weight: 700; }
+  .metric-box.danger .metric-label { color: #ffffff; opacity: 0.95; }
+  .metric-label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px;
+    font-weight: 500; margin-bottom: 2px;
+  }
+  .metric-value { font-size: 22px; font-weight: 600; letter-spacing: -0.5px; }
+  .metric-unit { font-size: 11px; color: #6b7280; margin-left: 3px; }
+  .metric-detail { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+  .comparison {
+    margin-top: 10px; padding: 10px 13px; border-radius: 12px;
+    font-size: 12px; font-weight: 500;
+  }
+  .comparison.ok { background: #d1fae5; color: #065f46; }
+  .comparison.alert { background: #fee2e2; color: #991b1b; }
+  .comparison.info { background: #dbeafe; color: #1e3a8a; }
+
+  .alert {
+    padding: 11px 13px; border-radius: 12px; font-size: 12px;
+    margin-bottom: 6px; display: flex; align-items: flex-start; gap: 8px;
+    background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .alert.stop { border-left: 4px solid #ef4444; color: #7f1d1d; font-weight: 600; }
+  .alert.warn { border-left: 4px solid #f59e0b; color: #78350f; }
+  .alert.info { border-left: 4px solid #3b82f6; color: #1e3a8a; }
+  .alert-icon { font-size: 15px; flex-shrink: 0; }
+
+  /* Help button + tooltip */
+  .help-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #93c5fd; color: white; font-size: 10px; font-weight: 700;
+    margin-left: 6px; cursor: help; user-select: none;
+    border: none; padding: 0; flex-shrink: 0;
+  }
+  .help-btn:hover { background: #3b82f6; }
+  .tooltip-popup {
+    position: absolute; max-width: 320px;
+    background: #1e293b; color: white; padding: 10px 13px;
+    border-radius: 10px; font-size: 11.5px; line-height: 1.6;
+    z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    opacity: 0; pointer-events: none; transition: opacity 0.15s;
+  }
+  .tooltip-popup.show { opacity: 1; pointer-events: auto; }
+  .tooltip-popup strong { color: #fbbf24; }
+  .tooltip-popup .src { color: #94a3b8; font-size: 10.5px; margin-top: 5px; display: block; }
+
+  /* Feeding mode toggle */
+  .feed-toggle {
+    display: inline-flex; background: #f5f5f7; border-radius: 8px;
+    padding: 2px; font-size: 11px; margin-left: 6px;
+  }
+  .feed-toggle button {
+    border: none; background: transparent; padding: 4px 10px;
+    border-radius: 6px; cursor: pointer; font-weight: 500;
+    color: #86868b; font-family: inherit; transition: all 0.15s;
+  }
+  .feed-toggle button.active { background: white; color: #1d1d1f; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+
+  .reasoning {
+    background: white; border-radius: 12px; padding: 12px 14px;
+    font-size: 11.5px; color: #4b5563; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .reasoning strong { color: #1d1d1f; }
+  .reasoning ul { margin-top: 4px; padding-left: 17px; }
+  .reasoning li { margin-bottom: 2px; }
+
+  .recheck-badge {
+    display: inline-block; padding: 4px 11px;
+    background: linear-gradient(135deg, #bfdbfe, #93c5fd);
+    color: #1e3a8a; border-radius: 12px; font-size: 10.5px;
+    font-weight: 600; margin-top: 7px;
+  }
+
+  .footer-note {
+    margin-top: 12px; padding: 11px; background: white;
+    border: 1px solid #e5e5e7; border-radius: 12px;
+    font-size: 10.5px; color: #4b5563; line-height: 1.55;
+  }
+  .footer-note strong { color: #1d1d1f; }
+
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .panel.left { border-right: none; border-bottom: 1px solid #e5e5e7; }
+    header { padding: 14px 16px; }
+    header h1 { font-size: 16px; }
+    .panel { padding: 16px 18px; }
+    .toolbar { padding: 10px 18px; }
+  }
+  @media (max-width: 480px) {
+    body { padding: 8px; }
+    header { flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px 16px; }
+    .clock { align-self: flex-end; font-size: 13px; }
+    .toolbar { padding: 10px 14px; gap: 6px; }
+    .btn { flex: 1 1 auto; font-size: 11px; padding: 7px 10px; }
+    .btn-reset { flex-basis: 100%; margin-left: 0; margin-top: 4px; }
+    .row3 { grid-template-columns: 1fr 1fr; }
+    .row3 > div:nth-child(3) { grid-column: 1 / -1; }
+    .panel { padding: 14px 16px; }
+    input, select { font-size: 16px; } /* iOS zoom 방지 */
+    .metric-value { font-size: 19px; }
+    .metric-box.recommended .metric-value { font-size: 22px; }
+  }
+
+
+/* ===== Theme Override: Bedside Monitor Light ===== */
+body { background: #fbfbf7; color: #111827; }
+header { background: #111827; color: #f9fafb; border-bottom: 1px solid #374151; }
+header h1, header h1 .v { color: #f9fafb; }
+header p { color: #d1d5db; }
+.clock { background: #030712; color: #a7f3d0; border: 1px solid #065f46; font-variant-numeric: tabular-nums; }
+.toolbar { background: #ffffff; border-bottom: 1px solid #d1d5db; }
+.grid { box-shadow: 0 18px 42px rgba(17,24,39,0.14); border: 1px solid #d1d5db; }
+.panel.left { background: #ffffff; border-right: 1px solid #d1d5db; }
+.panel.right { background: #f9fafb; }
+.section h2 { color: #111827; }
+input[type="number"], input[type="time"], input[type="text"], select { border-color: #9ca3af; background: #ffffff; color: #111827; }
+input:focus, select:focus { border-color: #111827; box-shadow: 0 0 0 3px rgba(17,24,39,0.12); }
+.checkbox-item { border-color: #d1d5db; background: #ffffff; }
+.checkbox-item:hover { background: #f9fafb; border-color: #9ca3af; }
+.checkbox-item.active { background: #fef3c7; border-color: #eab308; }
+.checkbox-item.active.inotrope { background: #dbeafe; border-color: #2563eb; }
+.drug-group { background: #f9fafb; border-color: #d1d5db; }
+.day-panel { background: #111827; border: 1px solid #374151; }
+.day-box { background: #1f2937; }
+.day-box .label { color: #9ca3af; }
+.day-box .value { color: #a7f3d0; }
+.day-note { color: #fde68a; }
+.io-block { border-color: #d1d5db; background: #ffffff; }
+.result-card, .reasoning, .footer-note { border: 1px solid #d1d5db; box-shadow: 0 1px 4px rgba(17,24,39,0.08); }
+.tier-moderate { background: #22c55e; color: #052e16; box-shadow: none; }
+.tier-low { background: #facc15; color: #422006; }
+.tier-ultra { background: #fb923c; color: #431407; }
+.tier-zero { background: #dc2626; color: #ffffff; box-shadow: 0 2px 8px rgba(220,38,38,0.28); }
+.safe-banner { background: #111827; color: #a7f3d0; border: 1px solid #065f46; }
+.safe-banner .sb-value { color: #bbf7d0; }
+.help-btn { background: #22c55e; color: #052e16; }
+.metric-box.needed { background: #e5e7eb; border: 1px solid #9ca3af; }
+.metric-box.needed .metric-value, .metric-box.needed .metric-label { color: #111827; }
+.metric-box.recommended { background: #fef08a; border: 2px solid #eab308; }
+.metric-box.recommended .metric-value { color: #713f12; }
+.metric-box.recommended .metric-label { color: #713f12; }
+.metric-box.danger { background: #dc2626; border: 2px solid #991b1b; }
+.comparison.alert { background: #fecaca; color: #7f1d1d; }
+.alert.warn { background: #fff7ed; color: #7c2d12; border-left: 4px solid #f97316; }
+.alert.stop { background: #fef2f2; }
+.recheck-badge { background: #111827; color: #a7f3d0; }
+.reasoning { background: #ffffff; }
+
+/* ===== v1.3: 0A/6A 정산 기준 토글 — dark 패널 계열, 가운데 정렬, 선택 시 네온 레드 ===== */
+.day-panel > label {
+  color: #e5e7eb !important; font-size: 11.5px !important; font-weight: 600 !important;
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 8px; text-align: center; margin: 0 0 9px !important;
+}
+.cycle-toggle { background: #1f2937; margin-left: 0; }
+.cycle-toggle button { color: #9ca3af; }
+.cycle-toggle button.active {
+  background: #475569; color: #ff4757; font-weight: 700;
+  text-shadow: 0 0 6px rgba(255,71,87,0.85);
+  box-shadow: inset 0 0 0 1px #64748b;
+}
+
+/* ===== v1.3: Block A — 토글을 라벨 위로 올리고 양쪽 상단영역을 동일 고정높이로 정렬 ===== */
+.row2.align-labels .toprow {
+  display: flex; align-items: center; height: 34px; margin-bottom: 4px;
+}
+.row2.align-labels .toprow .feed-toggle { margin-left: 0; }
+
+  /* ============== v1.2 가시성 강화 (override) ============== */
+  /* Section header — 더 크고 진하게 + 좌측 컬러 바 */
+  .section h2 {
+    font-size: 13.5px !important;
+    color: #1d1d1f !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2px !important;
+    border-left: 4px solid #007aff;
+    padding-left: 10px;
+    line-height: 1.3;
+  }
+  /* Label — 가독성 강화 */
+  label {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #1d1d1f !important;
+    margin-bottom: 5px !important;
+  }
+  /* Hint — 너무 흐리지 않게 */
+  .hint {
+    font-size: 11.5px !important;
+    color: #475569 !important;
+    line-height: 1.45;
+    font-weight: 400;
+  }
+  /* Checkbox item text — 명확하게 */
+  .checkbox-item {
+    padding: 11px 14px !important;
+    border-width: 1.5px !important;
+  }
+  .checkbox-item .label-text {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    color: #1d1d1f !important;
+    line-height: 1.35;
+  }
+  .checkbox-item input[type="checkbox"] {
+    width: 17px !important; height: 17px !important;
+    margin-top: 1px !important; margin-right: 11px !important;
+  }
+  .checkbox-item.active {
+    border-width: 2px !important;
+    box-shadow: 0 2px 6px rgba(245,158,11,0.2);
+  }
+  .checkbox-item.active.inotrope {
+    box-shadow: 0 2px 6px rgba(59,130,246,0.2);
+  }
+  /* Drug group header */
+  .drug-group {
+    padding: 13px !important;
+    border-width: 1.5px !important;
+  }
+  .drug-group.vaso { border-left-width: 6px !important; background: #fef9f9 !important; }
+  .drug-group.inotrope { border-left-width: 6px !important; background: #f5f9ff !important; }
+  .drug-group h3 {
+    font-size: 12.5px !important;
+    color: #1d1d1f !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    margin-bottom: 9px !important;
+  }
+  /* Day panel — 색감/박스 그대로, 크기·굵기만 강화 (bedside_monitor 테마 보존) */
+  .day-box .label {
+    font-size: 11.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+  }
+  .day-box .value {
+    font-size: 19px !important;
+    font-weight: 800 !important;
+  }
+  .day-note {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    line-height: 1.5;
+  }
+  /* Input fields — slightly bigger */
+  input[type="number"], input[type="time"], input[type="text"], select {
+    font-size: 14.5px !important;
+    padding: 10px 12px !important;
+    border-width: 1.5px !important;
+    font-weight: 600 !important;
+    color: #1d1d1f !important;
+  }
+  /* Tier chip — 더 강조 */
+  .tier-chip {
+    font-size: 14px !important;
+    padding: 7px 14px !important;
+    font-weight: 700 !important;
+  }
+  .tier-chip.tier-zero {
+    box-shadow: 0 4px 14px rgba(220,38,38,0.45) !important;
+  }
+  /* Metric box */
+  .metric-label {
+    font-size: 11.5px !important;
+    font-weight: 600 !important;
+  }
+  .safe-banner .sb-label {
+    font-size: 11.5px !important;
+    font-weight: 700 !important;
+  }
+  .safe-banner .sb-value {
+    font-size: 14.5px !important;
+  }
+  /* Alert messages */
+  .alert {
+    padding: 11px 13px !important;
+    font-size: 12.5px !important;
+    line-height: 1.5 !important;
+    border-width: 1.5px !important;
+  }
+  .alert.stop {
+    border-left-width: 5px !important;
+    font-weight: 600 !important;
+  }
+  .alert.warn { border-left-width: 5px !important; }
+  /* Reasoning */
+  .reasoning {
+    font-size: 12.5px !important;
+    line-height: 1.6 !important;
+  }
+  .reasoning strong { color: #1d1d1f; }
+  /* Footer note */
+  .footer-note {
+    font-size: 11.5px !important;
+    line-height: 1.55 !important;
+  }
+  /* Button text */
+  .btn {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    padding: 9px 16px !important;
+  }
+  /* Help button — 더 명확 */
+  .help-btn {
+    width: 19px !important; height: 19px !important;
+    font-size: 12px !important;
+    background: #007aff !important;
+    font-weight: 700 !important;
+  }
+  .help-btn:hover { background: #0051d5 !important; }
+  /* Recheck badge */
+  .recheck-badge {
+    font-size: 11.5px !important;
+    padding: 5px 11px !important;
+    font-weight: 700 !important;
+  }
+  /* Toggle buttons (mode/feed) */
+  .mode-toggle button, .feed-toggle button {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    padding: 7px 14px !important;
+  }
+  /* IO block headers */
+  .io-block h3 {
+    font-size: 12.5px !important;
+    font-weight: 700 !important;
+    color: #1d1d1f !important;
+  }
+  .io-block .sum {
+    font-size: 11.5px !important;
+    font-weight: 600 !important;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>🩺 CRRT UF Tolerance Calculator <span class="v">v1.3</span></h1>
+      <p>Daily I/O Target · SNUBH EICU2</p>
+    </div>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="toolbar-label">프로필</span>
+    <button class="btn btn-save" data-action="save" data-slot="A">환자 A 저장</button>
+    <button class="btn btn-load" data-action="load" data-slot="A" id="loadA" disabled>환자 A 불러오기</button>
+    <button class="btn btn-save" data-action="save" data-slot="B">환자 B 저장</button>
+    <button class="btn btn-load" data-action="load" data-slot="B" id="loadB" disabled>환자 B 불러오기</button>
+    <button class="btn btn-reset" data-action="reset">초기화</button>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: INPUTS -->
+    <div class="panel left">
+      <div class="section">
+        <h2>① 기본 정보</h2>
+        <div class="row2">
+          <div>
+            <label>처방 기준 체중 (kg) *</label>
+            <input type="number" id="weight" value="0" min="0" max="200" step="0.5">
+          </div>
+          <div>
+            <label>재평가 간격</label>
+            <select id="recheckInterval">
+              <option value="4" selected>4시간</option>
+              <option value="8">8시간 (shift 기준)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 id="ioSectionTitle">② 오늘의 I/O (00:00 ~ 23:59)</h2>
+        <div class="day-panel">
+          <!-- I/O 정산 기준시각: 0A(자정) 기본, NS/NR 환자는 6A(06:00) -->
+          <label>I/O 정산 기준시각
+            <span class="feed-toggle cycle-toggle" role="tablist">
+              <button type="button" data-cycle="0" class="active">0시 기준 (0A)</button>
+              <button type="button" data-cycle="6">6시 기준 (6A · NS/NR)</button>
+            </span>
+          </label>
+          <div class="day-grid">
+            <div class="day-box"><div class="label" id="elapsedLabel">주기 경과</div><div class="value" id="elapsedH">—</div></div>
+            <div class="day-box"><div class="label" id="remainingLabel">23:59까지 남은</div><div class="value" id="remainingH">—</div></div>
+            <div class="day-box"><div class="label">현재 시각</div><div class="value" id="nowDisplay">—</div></div>
+          </div>
+          <div class="day-note" id="cycleNote">ℹ️ Daily I/O는 00:00 자정 기준 (00:00~23:59). PT removal = UF_NET(실제 환자 순제거량) 기준.</div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label>Daily Target Balance (mL / 24h) *</label>
+            <input type="number" id="targetBalance" value="0" step="50">
+            <div class="hint">주치의 처방. 음수 = 빼야 할 양</div>
+          </div>
+          <div>
+            <label>현재 I/O (누적 balance, mL)</label>
+            <input type="number" id="cumulativeBalance" value="0" step="10">
+            <div class="hint" id="cumulativeHint">오늘 00:00 이후 지금까지 (EMR 참조)</div>
+          </div>
+        </div>
+
+        <!-- Mode toggle -->
+        <div class="mode-toggle" role="tablist">
+          <button type="button" data-mode="simple">간편 모드</button>
+          <button type="button" data-mode="detailed" class="active">상세 모드</button>
+        </div>
+
+        <!-- Simple mode: single field -->
+        <div id="simpleBlock" style="display:none;">
+          <label>시간당 Input 예상 (mL/hr)</label>
+          <input type="number" id="hourlyInputSimple" value="80" min="0" max="500">
+          <div class="hint">Feeding + IV + 약물 + 수혈/항생제/albumin/TPN/flush 평균 — 모두 합산</div>
+        </div>
+
+        <!-- Detailed mode -->
+        <div id="detailedBlock">
+          <div class="io-block a">
+            <h3>Block A. 시간당 연속 Input <span class="sum" id="sumA">0 mL/hr</span></h3>
+            <div class="row2 align-labels">
+              <div>
+                <div class="toprow">
+                  <span class="feed-toggle" role="tablist">
+                    <button type="button" data-feed="16" class="active">over 16h</button>
+                    <button type="button" data-feed="24">over 24h</button>
+                  </span>
+                </div>
+                <label>Feeding daily total (mL)</label>
+                <input type="number" id="feedingDaily" value="0" min="0" max="3000" step="50">
+                <div class="hint" id="feedingHint">over 16h: 09:00~다음날 01:00 진행. 자동 환산.</div>
+              </div>
+              <div>
+                <div class="toprow"></div>
+                <label>Hourly input (cc/hr)</label>
+                <input type="number" id="mainRate" value="0" min="0" max="500">
+                <div class="hint">Main fluid + CIV 약물 합</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="io-block b">
+            <h3>Block B. 남은 시간 동안 예정된 총량 <span class="sum" id="sumB">0 mL → 0 mL/hr</span></h3>
+            <div class="row2">
+              <div>
+                <label>수혈 (mL)</label>
+                <input type="number" id="txAmount" value="0" min="0" max="3000" step="50">
+              </div>
+              <div>
+                <label>항생제 (mL)</label>
+                <input type="number" id="abxAmount" value="0" min="0" max="2000" step="50">
+              </div>
+              <div>
+                <label>Full drip (mL)</label>
+                <input type="number" id="dripAmount" value="0" min="0" max="2000" step="50">
+              </div>
+              <div>
+                <label>기타 예정 input (mL)</label>
+                <input type="number" id="otherInputAmount" value="0" min="0" max="3000" step="50">
+                <div class="hint">Albumin, TPN, flush, citrate/calcium 등</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row2" style="margin-top:10px;">
+          <div>
+            <label>시간당 Urine Output (mL/hr)</label>
+            <input type="number" id="uop" value="0" min="0" max="500">
+            <div class="hint">AKI 회복기/이뇨 회복 시 자연 이뇨가 NUF와 중복되니 정확히 반영</div>
+          </div>
+          <div>
+            <label>기타 손실 (mL/hr)</label>
+            <input type="number" id="otherLoss" value="0" min="0" max="500">
+            <div class="hint">Drain, NG 등</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>③ 현재 Vital Signs</h2>
+        <div>
+          <label>Lactate (mmol/L)</label>
+          <input type="number" id="lactate" value="1.5" min="0.3" max="20" step="0.1">
+        </div>
+        <label class="checkbox-item" style="margin-top:6px;"><input type="checkbox" id="mapLow"><div><div class="label-text">MAP &lt; 65 mmHg</div><div class="hint" style="margin-top:1px;">A-line MAP 65 미만 시 체크 → UF 중단 권장</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" id="lactateRising"><div><div class="label-text">Lactate 상승 추세 (직전 대비 ↑)</div><div class="hint" style="margin-top:1px;">체크 + Lactate ≥4 → UF 중단 권장. 미체크 + 안정/하강 → 초저속 유지 (Type B 가능성)</div></div></label>
+      </div>
+
+      <div class="section">
+        <h2>④ 사용 중인 약물</h2>
+        <div class="drug-group vaso">
+          <h3>🩸 Vasopressor (SVR 보조)</h3>
+          <label class="checkbox-item"><input type="checkbox" data-drug="ne"><div><div class="label-text">Norepinephrine (NE)</div></div></label>
+          <label class="checkbox-item"><input type="checkbox" data-drug="vaso"><div><div class="label-text">Vasopressin</div></div></label>
+        </div>
+        <div class="drug-group inotrope">
+          <h3>💓 Inotrope (Pump 보조)</h3>
+          <label class="checkbox-item"><input type="checkbox" data-drug="dobu" data-type="inotrope"><div><div class="label-text">Dobutamine</div></div></label>
+          <label class="checkbox-item"><input type="checkbox" data-drug="milri" data-type="inotrope"><div><div class="label-text">Milrinone</div></div></label>
+          <label class="checkbox-item"><input type="checkbox" data-drug="dopa" data-type="inotrope"><div><div class="label-text">Dopamine</div></div></label>
+          <label class="checkbox-item"><input type="checkbox" data-drug="epi" data-type="inotrope"><div><div class="label-text">Epinephrine</div></div></label>
+        </div>
+        <div class="row2" style="margin-top:8px;">
+          <label class="checkbox-item"><input type="checkbox" id="vasoUp"><div><div class="label-text">Vasopressor 증량 중 (≥25%)</div></div></label>
+          <label class="checkbox-item"><input type="checkbox" id="inoUp"><div><div class="label-text">Inotrope 증량 중 (≥25%)</div></div></label>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>⑤ 기저 위험 요인 <span style="font-size:10px;color:#86868b;font-weight:400;text-transform:none;letter-spacing:0;">(임상 영향 큰 순)</span></h2>
+        <label class="checkbox-item"><input type="checkbox" data-risk="sepsis"><div><div class="label-text">1. Septic / Distributive shock 진단</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" data-risk="hf"><div><div class="label-text">2. HF (HFrEF EF≤40% 또는 HFpEF/확장장애) / Cardiorenal</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" data-risk="ards"><div><div class="label-text">3. 고용량 PEEP / Severe ARDS (PEEP ≥ 10)</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" data-risk="rv"><div><div class="label-text">4. 우심부전 / 폐고혈압</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" data-risk="valve"><div><div class="label-text">5. Preload-dependent 판막 (severe AS, HCM)</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" data-risk="cirrhosis"><div><div class="label-text">6. 간경변 (HRS 포함) — Type B lactate 원인 가능</div></div></label>
+        <label class="checkbox-item"><input type="checkbox" data-risk="frail"><div><div class="label-text">7. 고령(≥75세) + 저알부민(<2.5) / Frail</div><div class="hint" style="margin-top:1px;">임상의 판단으로 체크. 체크 시 1단계 감속 (Modifier)</div></div></label>
+      </div>
+    </div>
+
+    <!-- RIGHT: OUTPUT -->
+    <div class="panel right">
+      <div class="section">
+        <h2>📊 처방 보조</h2>
+        <div class="result-card">
+          <span class="tier-chip tier-moderate" id="tierChip">계산 중…</span>
+
+          <div class="safe-banner">
+            <span class="sb-label">안전 권장 상한 (UF Ceiling)<button class="help-btn" id="ceilingHelp" type="button" aria-label="도움말">?</button></span>
+            <span><span class="sb-value" id="mlkg">1.75</span> mL/kg/h · = <span id="safeMlhr">123</span> mL/hr</span>
+          </div>
+          <div class="tooltip-popup" id="ceilingTooltip">
+            <strong>💡 안전 권장 상한이란?</strong><br>
+            환자의 vital sign · 약물 · 위험요인을 종합한 <u>보수적 가이드라인</u>입니다.<br>
+            ⚠️ <strong>RCT 미검증</strong> — 관찰연구 기반 임계값. RELIEVE-AKI 2026은 fixed dose 효과 미증명.<br>
+            • 이 값을 <u>금지선이 아닌 참고 기준</u>으로 사용<br>
+            • 임상 상황(refractory pulmonary edema 등)에 따라 주치의 지시 하 초과 운용 가능
+            <span class="src">근거: Murugan 2019 RENAL post-hoc · RELIEVE-AKI feasibility (Murugan 2026 Crit Care, n=97)</span>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-box needed">
+              <div class="metric-label">Target Needed</div>
+              <div><span class="metric-value" id="neededMlhr">—</span><span class="metric-unit">mL/hr</span></div>
+              <div class="metric-detail" id="neededDetail">—</div>
+            </div>
+            <div class="metric-box recommended" id="recommendedBox">
+              <div class="metric-label">보수적 권장값</div>
+              <div><span class="metric-value" id="recommendedMlhr">—</span><span class="metric-unit">mL/hr</span></div>
+              <div class="metric-detail" id="recommendedDetail">—</div>
+            </div>
+          </div>
+
+          <div class="comparison" id="comparison"></div>
+
+          <div><span class="recheck-badge" id="recheck">재평가: 4시간</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>⚠️ 알림</h2>
+        <div id="alerts"></div>
+      </div>
+
+      <div class="section">
+        <h2>🧠 판단 근거</h2>
+        <div class="reasoning" id="reasoning">
+          <strong>적용된 규칙:</strong>
+          <ul id="reasoningList"></ul>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        ⚠️ 본 도구는 evidence-informed clinical decision support이며 <strong>RCT-validated prescription tool이 아닙니다</strong>. Tier 임계값(0.5/1.0/1.75 mL/kg/h)은 관찰연구(Murugan 2019) 기반. 본 계산기는 dynamic titration 보조 도구. 최종 판단은 담당 의료진의 hemodynamic 평가에 근거.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================
+// CRRT UF Tolerance Calculator v1.2
+// Concept E + 2-block I/O + feeding window
+// ============================================
+const STORAGE_PREFIX = 'crrt_v12_pt_';
+
+const TIERS = {
+  ZERO:    { name: "⛔ 극고위험 — UF 최소화/중단 강력 고려", mlkg: 0,   cls: "tier-zero" },
+  ULTRA:   { name: "초저속 (Ultra-low)",                     mlkg: 0.5, cls: "tier-ultra" },
+  LOW:     { name: "저속 (Conservative)",                    mlkg: 1.0, cls: "tier-low" },
+  MODERATE:{ name: "표준 (Moderate)",                        mlkg: 1.75, cls: "tier-moderate" }
+};
+const ORDER = { ZERO: 0, ULTRA: 1, LOW: 2, MODERATE: 3 };
+
+let ioMode = 'detailed';  // 'simple' or 'detailed'
+let feedingWindow = '16';  // '16' or '24' hours
+let cycleStartHour = 0;    // I/O 정산 기준시각: 0(자정·기본) 또는 6(NS/NR)
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+// 현재 I/O 정산 주기의 시작/끝 시각(Date) 반환.
+// cycleStartHour 이전 시각이면 주기는 전날 cycleStartHour에 시작된 것으로 본다.
+function getCycleBounds(now) {
+  const start = new Date(now); start.setHours(cycleStartHour, 0, 0, 0);
+  if (now < start) start.setDate(start.getDate() - 1);  // 아직 기준시각 전 → 전날 시작
+  const end = new Date(start); end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  document.getElementById('nowDisplay').textContent =
+    `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const { start, end } = getCycleBounds(now);
+  const elapsedH = (now - start) / 3600000;
+  const remainingH = Math.max(0.01, (end - now) / 3600000);
+  document.getElementById('elapsedH').textContent = elapsedH.toFixed(1) + 'h';
+  document.getElementById('remainingH').textContent = remainingH.toFixed(1) + 'h';
+  return { elapsedH, remainingH, cycleEnd: end };
+}
+
+function num(id, def) {
+  const el = document.getElementById(id);
+  if (!el) return def;
+  const n = parseFloat(el.value);
+  return isNaN(n) ? def : n;
+}
+
+function calculate() {
+  const { elapsedH, remainingH, cycleEnd } = updateClock();
+
+  const v = {
+    weight:  num('weight', 0),
+    recheck: num('recheckInterval', 4),
+    targetBalance: num('targetBalance', 0),
+    cumulativeBalance: num('cumulativeBalance', 0),
+    uop:       num('uop', 0),
+    otherLoss: num('otherLoss', 0),
+    lactate: num('lactate', 1.5),
+  };
+
+  // ===== I/O input based on mode =====
+  // Feeding: daily total (mL) + window (16h or 24h)
+  // 24h: 종일 진행. 16h: 매일 09:00~다음날 01:00 (벽시계 기준, 정산 주기와 무관)
+  // 시간대 보정: 지금(now)부터 현재 I/O 정산 주기 끝(cycleEnd)까지 feeding active 시간을 계산하여 평균 분배.
+  // cycleEnd는 0A 주기면 익일 자정, 6A 주기면 익일 06:00 → 주기가 바뀌어도 정확히 동작.
+
+  // [start, end] 구간이 같은 날의 벽시계 [winStartH, winEndH)시 구간과 겹치는 시간(h)
+  function overlapHours(start, end, winStartH, winEndH) {
+    const base = new Date(start); base.setHours(0, 0, 0, 0);
+    const ws = base.getTime() + winStartH * 3600000;
+    const we = base.getTime() + winEndH * 3600000;
+    const s = Math.max(start.getTime(), ws);
+    const e = Math.min(end.getTime(), we);
+    return Math.max(0, (e - s) / 3600000);
+  }
+  // [now, cycleEnd] 동안 feeding이 실제 주입되는 시간(h)
+  function feedingActiveHoursRemaining(start, end, windowKey) {
+    if (windowKey === '24') return Math.max(0, (end - start) / 3600000);  // 종일 → 남은 주기 전체
+    // 16h: 매일 [00:00,01:00) ∪ [09:00,24:00) 를 [start,end] 구간에 대해 적분
+    let total = 0;
+    let cur = new Date(start);
+    while (cur < end) {
+      const nextMidnight = new Date(cur); nextMidnight.setHours(24, 0, 0, 0);
+      const segEnd = new Date(Math.min(nextMidnight.getTime(), end.getTime()));
+      total += overlapHours(cur, segEnd, 0, 1);
+      total += overlapHours(cur, segEnd, 9, 24);
+      cur = segEnd;
+    }
+    return total;
+  }
+
+  let hourlyInput;
+  let feedingHourlyAvg = 0;
+  let feedingActiveH = 0;
+  let feedingRate = 0;
+  if (ioMode === 'simple') {
+    hourlyInput = num('hourlyInputSimple', 0);
+  } else {
+    const feedingDaily = num('feedingDaily', 0);
+    const feedingWindowH = parseInt(feedingWindow, 10) || 16;
+    feedingRate = feedingDaily > 0 ? feedingDaily / feedingWindowH : 0;  // 진행 중일 때 cc/hr
+    feedingActiveH = feedingActiveHoursRemaining(new Date(), cycleEnd, feedingWindow);
+    // 오늘 남은 시간 동안 feeding이 들어갈 총량 = feedingRate × feedingActiveH
+    // 이를 남은 전체 시간으로 평균하면 hourly 기여도
+    feedingHourlyAvg = remainingH > 0 ? (feedingRate * feedingActiveH) / remainingH : 0;
+    const mainRate = num('mainRate', 0);
+    const sumA = feedingHourlyAvg + mainRate;
+    const tx = num('txAmount', 0);
+    const abx = num('abxAmount', 0);
+    const drip = num('dripAmount', 0);
+    const otherInput = num('otherInputAmount', 0);
+    const sumB = tx + abx + drip + otherInput;
+    const sumBhourly = sumB / remainingH;
+    const feedingTotalRemaining = Math.round(feedingRate * feedingActiveH);
+    document.getElementById('sumA').textContent =
+      `Feed ${feedingRate.toFixed(0)}cc/hr × 남은 ${feedingActiveH.toFixed(1)}h = ${feedingTotalRemaining}mL · 평균 ${feedingHourlyAvg.toFixed(1)} + Main ${mainRate} = ${sumA.toFixed(1)} mL/hr`;
+    document.getElementById('sumB').textContent = `${sumB.toFixed(0)} mL → ${sumBhourly.toFixed(1)} mL/hr`;
+    hourlyInput = sumA + sumBhourly;
+  }
+
+  const drugs = {};
+  document.querySelectorAll('[data-drug]').forEach(cb => {
+    drugs[cb.dataset.drug] = cb.checked;
+    cb.closest('.checkbox-item').classList.toggle('active', cb.checked);
+    cb.closest('.checkbox-item').classList.toggle('inotrope', cb.checked && cb.dataset.type === 'inotrope');
+  });
+  const risks = {};
+  document.querySelectorAll('[data-risk]').forEach(cb => {
+    risks[cb.dataset.risk] = cb.checked;
+    cb.closest('.checkbox-item').classList.toggle('active', cb.checked);
+  });
+  const vasoUp = document.getElementById('vasoUp').checked;
+  const inoUp  = document.getElementById('inoUp').checked;
+  const lactateRising = document.getElementById('lactateRising').checked;
+  const mapLow = document.getElementById('mapLow').checked;
+  document.getElementById('vasoUp').closest('.checkbox-item').classList.toggle('active', vasoUp);
+  document.getElementById('inoUp').closest('.checkbox-item').classList.toggle('active', inoUp);
+  document.getElementById('lactateRising').closest('.checkbox-item').classList.toggle('active', lactateRising);
+  document.getElementById('mapLow').closest('.checkbox-item').classList.toggle('active', mapLow);
+
+  const vasoCount = (drugs.ne ? 1 : 0) + (drugs.vaso ? 1 : 0);
+  const inoCount = (drugs.dobu ? 1 : 0) + (drugs.milri ? 1 : 0) + (drugs.dopa ? 1 : 0) + (drugs.epi ? 1 : 0);
+
+  let tier = "MODERATE";
+  const reasons = [], stopAlerts = [], warnAlerts = [];
+  const setTier = (key, reason) => {
+    if (ORDER[key] < ORDER[tier]) tier = key;
+    if (reason) reasons.push(reason);
+  };
+
+  // HARD STOPS
+  if (mapLow) { setTier("ZERO", "MAP < 65 mmHg"); stopAlerts.push("MAP < 65 mmHg — 관류 저하, UF 최소화 강력 고려"); }
+  if (v.lactate >= 4 && lactateRising) {
+    setTier("ZERO", `Lactate ${v.lactate} + 상승 추세`);
+    stopAlerts.push(`Lactate ${v.lactate} mmol/L (≥4) + 상승 추세 — 관류 저하 진행 중`);
+  } else if (v.lactate >= 4 && !lactateRising) {
+    warnAlerts.push(`Lactate ${v.lactate} mmol/L (≥4) — 안정/하강 추세면 Type B(간/약물) 또는 회복기 가능, 추세 재확인`);
+  }
+  if (vasoUp && mapLow) { setTier("ZERO", "Vaso 증량 + MAP 저하"); stopAlerts.push("Vasopressor 증량 중 + MAP 저하 — hemodynamic 악화"); }
+
+  // ULTRA
+  if (vasoCount >= 2) setTier("ULTRA", "Vasopressor 2제 병용");
+  if (vasoCount >= 1 && inoCount >= 1) setTier("ULTRA", "Vasopressor + Inotrope (Mixed shock)");
+  if (v.lactate >= 2 && v.lactate < 4) setTier("ULTRA", `Lactate ${v.lactate} (2-4)`);
+  if (v.lactate >= 4 && !lactateRising) setTier("ULTRA", `Lactate ${v.lactate} (안정/하강)`);
+  if (vasoUp) setTier("ULTRA", "Vasopressor 증량 중");
+  if (inoCount >= 2) setTier("ULTRA", `Inotrope ${inoCount}제 병용 (severe LCOS)`);
+  if (risks.valve) setTier("ULTRA", "Preload-dependent 판막 (AS/HCM)");
+
+  // LOW
+  if (vasoCount === 1) setTier("LOW", "Vasopressor 1제 (안정 용량)");
+  if (inoCount >= 1 && vasoCount === 0) setTier("LOW", "Inotrope 사용 중 (cardiogenic support)");
+  if (risks.hf) setTier("LOW", "HF / Cardiorenal");
+  if (risks.rv) setTier("LOW", "우심부전 / 폐고혈압");
+  if (risks.sepsis) setTier("LOW", "Septic/Distributive shock");
+  if (risks.cirrhosis) setTier("LOW", "간경변 / HRS");
+  if (risks.ards) setTier("LOW", "고용량 PEEP / Severe ARDS");
+  if (inoUp) setTier("LOW", "Inotrope 증량 중");
+
+  // Frail (고령+저알부민) — 체크박스 기반 modifier
+  if (risks.frail) {
+    warnAlerts.push("고령/저알부민/Frail — 1단계 감속 적용");
+    if (tier === "MODERATE") tier = "LOW";
+    else if (tier === "LOW") tier = "ULTRA";
+    reasons.push("Frail (고령/저알부민) → 1단계 감속");
+  }
+
+  // (NE 고용량 SSC 경고는 v1.1에서 제거 — 본 도구는 UF 보조이지 vasopressor titration 도구 아님)
+
+  // ===== I/O calc (daily 24h basis) =====
+  const tierInfo = TIERS[tier];
+  // v1.2 fix: Math.floor 사용 — Math.round 시 70kg×1.75=122.5 → 123 (1.757 mL/kg/h, 임계값 초과)
+  const safeMlhr = Math.floor(tierInfo.mlkg * v.weight);
+  const remainingTarget = v.targetBalance - v.cumulativeBalance;
+  const remainingHourlyTarget = remainingTarget / remainingH;
+  const neededMlhr = Math.round(hourlyInput - v.uop - v.otherLoss - remainingHourlyTarget);
+  const neededDetailText = `Input ${hourlyInput.toFixed(0)} − UO ${v.uop} − 기타 ${v.otherLoss} − target분배 ${remainingHourlyTarget.toFixed(0)}`;
+
+  if (v.targetBalance < 0 && v.cumulativeBalance <= v.targetBalance) {
+    warnAlerts.push(`현재 누적 balance(${v.cumulativeBalance}mL)는 daily target(${v.targetBalance}mL) 달성 상태입니다. 남은 예정 input(feeding·수혈·항생제 등)을 반영해 유지 제거 필요성을 계산 중입니다.`);
+  }
+
+  let recommendedMlhr, comparisonMsg = '', comparisonClass = 'ok';
+  let recommendedBoxClass = 'metric-box recommended';
+
+  if (neededMlhr <= 0) {
+    recommendedMlhr = 0;
+    comparisonMsg = `✓ 현재까지 충분히 제거됨 또는 추가 제거 불필요 (Needed ≤ 0)`;
+    comparisonClass = 'info';
+  } else if (tier === "ZERO") {
+    recommendedMlhr = 0;
+    comparisonMsg = `⛔ 관류 악화 신호 — 보수적 권장값 0 mL/hr (CRRT 회로 유지, solute clearance 지속). 초과 운용 시 주치의 확인 + 15-30분 단위 재평가`;
+    comparisonClass = 'alert';
+    recommendedBoxClass = 'metric-box danger';
+  } else if (neededMlhr <= safeMlhr) {
+    recommendedMlhr = neededMlhr;
+    comparisonMsg = `✓ Target Needed가 안전 권장 상한 이내입니다 (Needed ${neededMlhr} ≤ Ceiling ${safeMlhr} mL/hr)`;
+    comparisonClass = 'ok';
+  } else {
+    recommendedMlhr = safeMlhr;
+    comparisonMsg = `⚠️ Needed ${neededMlhr} > 안전 권장 상한 ${safeMlhr} mL/hr — 보수적 권장값은 ${safeMlhr} mL/hr. 초과 운용 필요 시 주치의 확인`;
+    comparisonClass = 'alert';
+  }
+
+  // Render
+  const chip = document.getElementById('tierChip');
+  chip.textContent = tierInfo.name;
+  chip.className = 'tier-chip ' + tierInfo.cls;
+
+  // v1.2 fix: toFixed(2) — toFixed(1) 시 1.75 → "1.8"로 잘못 표시
+  document.getElementById('mlkg').textContent = tierInfo.mlkg.toFixed(2);
+  document.getElementById('safeMlhr').textContent = safeMlhr;
+  document.getElementById('neededMlhr').textContent = neededMlhr > 0 ? neededMlhr : "0";
+  document.getElementById('neededDetail').textContent = neededDetailText;
+  document.getElementById('recommendedMlhr').textContent = recommendedMlhr;
+  document.getElementById('recommendedDetail').textContent =
+    `= ${Math.round(recommendedMlhr * remainingH)} mL / 남은 ${remainingH.toFixed(1)}h`;
+  document.getElementById('recommendedBox').className = recommendedBoxClass;
+
+  const cmp = document.getElementById('comparison');
+  cmp.textContent = comparisonMsg;
+  cmp.className = 'comparison ' + comparisonClass;
+
+  document.getElementById('recheck').textContent =
+    `재평가: ${v.recheck}시간마다` + (tier === "ZERO" ? " (Zero tier → 1시간 내 vital 재확인)" : "");
+
+  const alertBox = document.getElementById('alerts');
+  alertBox.innerHTML = '';
+  stopAlerts.forEach(a => alertBox.innerHTML += `<div class="alert stop"><span class="alert-icon">🛑</span><span>${a}</span></div>`);
+  warnAlerts.forEach(a => alertBox.innerHTML += `<div class="alert warn"><span class="alert-icon">⚠️</span><span>${a}</span></div>`);
+  if (stopAlerts.length === 0 && warnAlerts.length === 0) {
+    alertBox.innerHTML = `<div class="alert info"><span class="alert-icon">ℹ️</span><span>현재 vital 안정. ${v.recheck}시간 간격으로 재평가.</span></div>`;
+  }
+
+  const rList = document.getElementById('reasoningList');
+  if (reasons.length === 0) {
+    rList.innerHTML = '<li>위험 요인 없음 — 안전 권장 상한 1.75 mL/kg/h (Murugan moderate tier 상한 1.01–1.75)</li>';
+  } else {
+    rList.innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
+  }
+}
+
+// ========== Mode toggle ==========
+function setMode(mode) {
+  ioMode = mode;
+  document.querySelectorAll('.mode-toggle button').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  document.getElementById('simpleBlock').style.display = (mode === 'simple') ? '' : 'none';
+  document.getElementById('detailedBlock').style.display = (mode === 'detailed') ? '' : 'none';
+  calculate();
+}
+
+function setFeedingWindow(win) {
+  feedingWindow = win;
+  document.querySelectorAll('.feed-toggle:not(.cycle-toggle) button').forEach(b => {
+    b.classList.toggle('active', b.dataset.feed === win);
+  });
+  const hint = document.getElementById('feedingHint');
+  if (hint) hint.textContent = (win === '24')
+    ? 'over 24h: 종일 24시간 진행. 자동 환산.'
+    : 'over 16h: 09:00~다음날 01:00 진행. 자동 환산.';
+  calculate();
+}
+
+// ========== I/O 정산 기준시각 (0A / 6A) ==========
+function setCycle(hour) {
+  cycleStartHour = parseInt(hour, 10) || 0;
+  document.querySelectorAll('.cycle-toggle button').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.cycle, 10) === cycleStartHour);
+  });
+  const sh = pad(cycleStartHour);            // 시작 시각 "00" / "06"
+  const eh = pad(cycleStartHour);            // 끝 시각(다음날 동일 시각)
+  const isMid = cycleStartHour === 0;
+  const endLabel = isMid ? '23:59' : `익일 ${eh}:00`;
+  const title = document.getElementById('ioSectionTitle');
+  if (title) title.textContent = isMid
+    ? '② 오늘의 I/O (00:00 ~ 23:59)'
+    : `② I/O 주기 (${sh}:00 ~ 익일 ${eh}:00)`;
+  const elabel = document.getElementById('elapsedLabel');
+  if (elabel) elabel.textContent = isMid ? '오늘 경과' : '주기 경과';
+  const rlabel = document.getElementById('remainingLabel');
+  if (rlabel) rlabel.textContent = `${endLabel}까지 남은`;
+  const note = document.getElementById('cycleNote');
+  if (note) note.textContent = isMid
+    ? 'ℹ️ Daily I/O는 00:00 자정 기준 (00:00~23:59). PT removal = UF_NET(실제 환자 순제거량) 기준.'
+    : `ℹ️ Daily I/O는 ${sh}:00 기준 (${sh}:00~익일 ${eh}:00, NS/NR 환자). PT removal = UF_NET(실제 환자 순제거량) 기준.`;
+  const chint = document.getElementById('cumulativeHint');
+  if (chint) chint.textContent = isMid
+    ? '오늘 00:00 이후 지금까지 (EMR 참조)'
+    : `주기 시작 ${sh}:00 이후 지금까지 (EMR 참조)`;
+  calculate();
+}
+
+// ========== Profiles ==========
+function collectState() {
+  const state = { ioMode, feedingWindow, cycleStartHour };
+  ['weight','recheckInterval','targetBalance','cumulativeBalance',
+   'hourlyInputSimple','feedingDaily','mainRate','txAmount','abxAmount','dripAmount','otherInputAmount',
+   'uop','otherLoss','lactate']
+    .forEach(id => { state[id] = document.getElementById(id).value; });
+  state.drugs = {};
+  document.querySelectorAll('[data-drug]').forEach(cb => state.drugs[cb.dataset.drug] = cb.checked);
+  state.risks = {};
+  document.querySelectorAll('[data-risk]').forEach(cb => state.risks[cb.dataset.risk] = cb.checked);
+  state.vasoUp = document.getElementById('vasoUp').checked;
+  state.inoUp = document.getElementById('inoUp').checked;
+  state.lactateRising = document.getElementById('lactateRising').checked;
+  state.mapLow = document.getElementById('mapLow').checked;
+  state.savedAt = new Date().toISOString();
+  return state;
+}
+
+function applyState(state) {
+  Object.keys(state).forEach(k => {
+    const el = document.getElementById(k);
+    if (el && typeof state[k] !== 'object' && k !== 'ioMode' && k !== 'feedingWindow' && k !== 'cycleStartHour' && k !== 'savedAt') el.value = state[k];
+  });
+  if (state.drugs) document.querySelectorAll('[data-drug]').forEach(cb => { cb.checked = !!state.drugs[cb.dataset.drug]; });
+  if (state.risks) document.querySelectorAll('[data-risk]').forEach(cb => { cb.checked = !!state.risks[cb.dataset.risk]; });
+  if (state.vasoUp !== undefined) document.getElementById('vasoUp').checked = !!state.vasoUp;
+  if (state.inoUp !== undefined) document.getElementById('inoUp').checked = !!state.inoUp;
+  if (state.lactateRising !== undefined) document.getElementById('lactateRising').checked = !!state.lactateRising;
+  if (state.mapLow !== undefined) document.getElementById('mapLow').checked = !!state.mapLow;
+  if (state.cycleStartHour !== undefined) setCycle(state.cycleStartHour);
+  if (state.feedingWindow) setFeedingWindow(state.feedingWindow);
+  if (state.ioMode) setMode(state.ioMode); else calculate();
+}
+
+function saveProfile(slot) {
+  localStorage.setItem(STORAGE_PREFIX + slot, JSON.stringify(collectState()));
+  showToast(`환자 ${slot} 저장됨 (${new Date().toLocaleTimeString('ko-KR')})`);
+  updateLoadButtons();
+}
+
+function loadProfile(slot) {
+  const data = localStorage.getItem(STORAGE_PREFIX + slot);
+  if (!data) { showToast(`환자 ${slot} 저장된 데이터 없음`, 'err'); return; }
+  try {
+    const state = JSON.parse(data);
+    applyState(state);
+    const savedAt = state.savedAt ? new Date(state.savedAt).toLocaleString('ko-KR') : '';
+    showToast(`환자 ${slot} 불러옴${savedAt ? ' ('+savedAt+')' : ''}`);
+  } catch(e) { showToast(`불러오기 실패: ${e.message}`, 'err'); }
+}
+
+function resetAll() {
+  if (!confirm('모든 입력을 초기화합니다. 저장된 환자 A/B는 유지됩니다. 계속할까요?')) return;
+  const defaults = {
+    weight: 0, recheckInterval: 4,
+    targetBalance: 0, cumulativeBalance: 0,
+    hourlyInputSimple: 80, feedingDaily: 0, mainRate: 0,
+    txAmount: 0, abxAmount: 0, dripAmount: 0, otherInputAmount: 0,
+    uop: 0, otherLoss: 0,
+    lactate: 1.5
+  };
+  Object.entries(defaults).forEach(([k,val]) => { const el = document.getElementById(k); if (el) el.value = val; });
+  document.querySelectorAll('[data-drug], [data-risk]').forEach(cb => cb.checked = false);
+  document.getElementById('vasoUp').checked = false;
+  document.getElementById('inoUp').checked = false;
+  document.getElementById('lactateRising').checked = false;
+  document.getElementById('mapLow').checked = false;
+  setCycle(0);
+  setFeedingWindow('16');
+  setMode('detailed');
+  showToast('초기화 완료');
+}
+
+function updateLoadButtons() {
+  ['A','B'].forEach(slot => {
+    document.getElementById('load' + slot).disabled = !localStorage.getItem(STORAGE_PREFIX + slot);
+  });
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type === 'err' ? 'err' : 'ok') + ' show';
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ========== Init ==========
+document.querySelectorAll('.mode-toggle button').forEach(b => {
+  b.addEventListener('click', () => setMode(b.dataset.mode));
+});
+document.querySelectorAll('.feed-toggle:not(.cycle-toggle) button').forEach(b => {
+  b.addEventListener('click', () => setFeedingWindow(b.dataset.feed));
+});
+document.querySelectorAll('.cycle-toggle button').forEach(b => {
+  b.addEventListener('click', () => setCycle(b.dataset.cycle));
+});
+document.querySelectorAll('.btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const action = btn.dataset.action, slot = btn.dataset.slot;
+    if (action === 'save') saveProfile(slot);
+    else if (action === 'load') loadProfile(slot);
+    else if (action === 'reset') resetAll();
+  });
+});
+
+// 도움말 툴팁 (UF Ceiling)
+const helpBtn = document.getElementById('ceilingHelp');
+const tooltip = document.getElementById('ceilingTooltip');
+if (helpBtn && tooltip) {
+  const showTip = () => {
+    const r = helpBtn.getBoundingClientRect();
+    tooltip.style.top = (window.scrollY + r.bottom + 6) + 'px';
+    tooltip.style.left = (window.scrollX + Math.max(8, r.left - 100)) + 'px';
+    tooltip.classList.add('show');
+  };
+  const hideTip = () => tooltip.classList.remove('show');
+  helpBtn.addEventListener('mouseenter', showTip);
+  helpBtn.addEventListener('mouseleave', hideTip);
+  helpBtn.addEventListener('focus', showTip);
+  helpBtn.addEventListener('blur', hideTip);
+  helpBtn.addEventListener('click', (e) => { e.preventDefault(); tooltip.classList.toggle('show'); if (tooltip.classList.contains('show')) showTip(); });
+}
+
+document.querySelectorAll('input, select').forEach(el => {
+  el.addEventListener('input', calculate);
+  el.addEventListener('change', calculate);
+});
+
+// 숫자 입력칸: 클릭하면 0 자동 제거, 비우고 떠나면 0 복귀
+document.querySelectorAll('input[type="number"]').forEach(el => {
+  el.addEventListener('focus', () => {
+    if (el.value === '0' || parseFloat(el.value) === 0) el.value = '';
+  });
+  el.addEventListener('blur', () => {
+    if (el.value === '' || isNaN(parseFloat(el.value))) el.value = '0';
+    calculate();
+  });
+});
+
+updateLoadButtons();
+calculate();
+setInterval(updateClock, 1000);
+setInterval(calculate, 10000);
+</script>
+</body>
+</html>
